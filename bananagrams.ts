@@ -19,25 +19,59 @@ function solitaire() {
     return letters.slice(0, 21).sort();
 }
 
+class UsefulMapKVP<K, V> {
+    public key: K;
+    public value: V;
+
+    constructor(key: K, value: V) {
+        this.key = key;
+        this.value = value;
+    }
+}
+
+class UsefulMap<K, V> implements Iterable<[K, V]> {
+    private storage : Map<string, UsefulMapKVP<K, V>> = new Map();
+
+    public set(key: K, value: V): void {
+        this.storage.set(JSON.stringify(key), new UsefulMapKVP(key, value));
+    }
+
+    public get(key: K): V {
+        let item = this.storage.get(JSON.stringify(key));
+        if (item === undefined) return undefined;
+        return item.value;
+    }
+
+    public has(key: K): boolean {
+        return this.storage.has(JSON.stringify(key));
+    }
+
+    public get size(): number {
+        return this.storage.size;
+    }
+
+    public *[Symbol.iterator]() : Iterator<[K, V]>{
+        for(var [_skey, kvp] of this.storage) {
+            yield [kvp.key, kvp.value];
+        }
+    }
+}
+
 class TileState {
-    position: IntVector2;
     char: string;
     valid: boolean;
 
-    constructor(position, char, valid) {
-        this.position = position;
+    constructor(char, valid) {
         this.char = char;
         this.valid = valid;
     }
 }
 
 class AnchorState {
-    position: IntVector2;
     direction: IntVector2;
     highlighted: boolean;
 
-    constructor(position, direction, highlighted) {
-        this.position = position;
+    constructor(direction, highlighted) {
         this.direction = direction;
         this.highlighted = highlighted;
     }
@@ -65,41 +99,29 @@ class DeckState {
 }
 
 class BoardState {
-    tiles: Map<String, TileState>;
-    anchors: Map<String, AnchorState>;
+    tiles: UsefulMap<IntVector2, TileState>;
+    anchors: UsefulMap<IntVector2, AnchorState>;
     cursorPosition: IntVector2;
     cursorDirection: IntVector2;
 
     constructor() {
-        this.tiles = new Map();
-        this.anchors = new Map();
+        this.tiles = new UsefulMap();
+        this.anchors = new UsefulMap();
         this.cursorPosition = null;
         this.cursorDirection = null;
     }
 
-    setTile(position, tileState) {
-        this.tiles.set(JSON.stringify(position), tileState);
-    }
-
-    getTile(position) {
-        return this.tiles.get(JSON.stringify(position));
-    }
-
-    iterateTiles() {
-        return this.tiles;
-    }
-
     generateAnchors() {
-        this.anchors = new Map();
-        for (const [_, state] of this.tiles) {
-            var rightNeighbourPosition = state.position.add(new IntVector2(1, 0));
-            if(!this.tiles.has(JSON.stringify(rightNeighbourPosition))) {
-                this.anchors.set(JSON.stringify(rightNeighbourPosition), new AnchorState(rightNeighbourPosition, new IntVector2(1, 0), false));
+        this.anchors = new UsefulMap();
+        for (const [position, state] of this.tiles) {
+            var rightNeighbourPosition = position.add(new IntVector2(1, 0));
+            if(!this.tiles.has(rightNeighbourPosition)) {
+                this.anchors.set(rightNeighbourPosition, new AnchorState(new IntVector2(1, 0), false));
             }
 
-            var downNeighbourPosition = state.position.add(new IntVector2(0, 1));
-            if(!this.tiles.has(JSON.stringify(downNeighbourPosition))) {
-                this.anchors.set(JSON.stringify(downNeighbourPosition), new AnchorState(downNeighbourPosition, new IntVector2(0, 1), false));
+            var downNeighbourPosition = position.add(new IntVector2(0, 1));
+            if(!this.tiles.has(downNeighbourPosition)) {
+                this.anchors.set(downNeighbourPosition, new AnchorState(new IntVector2(0, 1), false));
             }
         }
     }
@@ -154,8 +176,8 @@ class CanvasDisplay {
     handleCanvasClick(e) {
         let position = this.translateMouseCoordinates(e.offsetX, e.offsetY).add(new IntVector2(4, 4).multiply(-1));
         this.boardState.cursorPosition = position;
-        if(this.boardState.anchors.has(JSON.stringify(position))) {
-            this.boardState.cursorDirection = this.boardState.anchors.get(JSON.stringify(position)).direction;
+        if(this.boardState.anchors.has(position)) {
+            this.boardState.cursorDirection = this.boardState.anchors.get(position).direction;
         } else {
             this.boardState.cursorDirection = new IntVector2(1, 0);
         }
@@ -165,12 +187,12 @@ class CanvasDisplay {
     handleCanvasKeydown(e) {
         if(this.deckState.hasLetter(e.key)) {
             this.deckState.removeLetter(e.key);
-            let currentTile = this.boardState.getTile(this.boardState.cursorPosition);
+            let currentTile = this.boardState.tiles.get(this.boardState.cursorPosition);
             if(currentTile) {
                 this.deckState.addLetter(currentTile.char);
             }
 
-            this.boardState.setTile(this.boardState.cursorPosition, new TileState(this.boardState.cursorPosition, e.key, true));
+            this.boardState.tiles.set(this.boardState.cursorPosition, new TileState(e.key, true));
             this.boardState.cursorPosition = this.boardState.cursorPosition.add(this.boardState.cursorDirection);
             this.boardState.validateWords();
             this.boardState.generateAnchors();
@@ -195,7 +217,7 @@ class CanvasDisplay {
         if(this.boardState.cursorPosition) {
             this.drawChar(this.boardState.cursorPosition, "_", "#ff0000");
         }
-        if(this.boardState.iterateTiles().size == 0) {
+        if(this.boardState.tiles.size == 0) {
             this.drawAnchor(new IntVector2(0, 0), new IntVector2(1, 0), false);
         } else {
             this.drawAnchors();
@@ -255,8 +277,8 @@ class CanvasDisplay {
     }
 
     drawTiles() {
-        for (const [_, state] of this.boardState.tiles) {
-            this.drawChar(state.position, state.char, state.valid ? "#000000": "#f00000");
+        for (const [position, state] of this.boardState.tiles) {
+            this.drawChar(position, state.char, state.valid ? "#000000": "#f00000");
         }
     }
 
@@ -296,13 +318,13 @@ class CanvasDisplay {
     }
 
     drawAnchors() {
-        for (const [_, state] of this.boardState.anchors) {
+        for (const [position, state] of this.boardState.anchors) {
             var highlighted = false;
 
-            if(this.cursorHighlight.x == state.position.x + 4 && this.cursorHighlight.y == state.position.y + 4)
+            if(this.cursorHighlight.x == position.x + 4 && this.cursorHighlight.y == position.y + 4)
                 highlighted = true;
 
-            this.drawAnchor(state.position, state.direction, highlighted);
+            this.drawAnchor(position, state.direction, highlighted);
         }
     }
 }
