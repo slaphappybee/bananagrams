@@ -1,4 +1,23 @@
-let dictionary = ["sheet", "plug", "pen", "arrow", "drive", "ocular", "sounds"];
+let dictionary = ["sheet", "plug", "pen", "arrow", "drive", "ocular", "sounds"];  // unused
+let frequencies = {a: 13, b: 3, c: 3, d: 6, e: 18, f:3, g:4, h:3, i:12, j:2, k:2, l:5, m:3, n:8, o:11, p:3, q:2, r:9, s:6, t:9, u:6, v:3, w:3, x:2, y:3, z:2};
+
+// KFY from SO
+function shuffleArray(array) {
+    for(let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+}
+
+function solitaire() {
+    var letters = new Array();
+    for(var letter in frequencies) {
+        letters.push(Array(frequencies[letter]).fill(letter));
+    }
+    letters = letters.flat();
+    shuffleArray(letters);
+    return letters.slice(0, 21).sort();
+}
 
 class TileState {
     constructor(position, char, valid) {
@@ -13,6 +32,25 @@ class AnchorState {
         this.position = position;
         this.direction = direction;
         this.highlighted = highlighted;
+    }
+}
+
+class DeckState {
+    constructor(letters) {
+        this.letters = letters;
+    }
+
+    hasLetter(letter) {
+        return this.letters.indexOf(letter) !== -1;
+    }
+
+    addLetter(letter) {
+        this.letters = this.letters.concat([letter]).sort();
+    }
+
+    removeLetter(letter) {
+        let letterIndex = this.letters.indexOf(letter);
+        this.letters = this.letters.slice(0, letterIndex).concat(this.letters.slice(letterIndex + 1, this.letters.size));
     }
 }
 
@@ -75,10 +113,11 @@ class IntVector2 {
 }
 
 class CanvasDisplay {
-    constructor(canvas, boardState) {
+    constructor(canvas, boardState, deckState) {
         this.canvas = canvas;
         this.ctx = this.canvas.getContext("2d");
         this.boardState = boardState;
+        this.deckState = deckState;
         this.cursorHighlight = null;
 
         self = this;
@@ -89,16 +128,30 @@ class CanvasDisplay {
     }
 
     handleCanvasClick(e) {
-        this.boardState.cursorPosition = new IntVector2(0, 0);
+        let position = this.translateMouseCoordinates(e.offsetX, e.offsetY).add(new IntVector2(4, 4).multiply(-1));
+        this.boardState.cursorPosition = position;
+        if(this.boardState.anchors.has(JSON.stringify(position))) {
+            this.boardState.cursorDirection = this.boardState.anchors.get(JSON.stringify(position)).direction;
+        } else {
+            this.boardState.cursorDirection = new IntVector2(1, 0);
+        }
         this.redraw();
     }
     
     handleCanvasKeydown(e) {
-        this.boardState.setTile(this.boardState.cursorPosition, new TileState(this.boardState.cursorPosition, e.key, true));
-        this.boardState.cursorPosition = this.boardState.cursorPosition.add(new IntVector2(1, 0));
-        this.boardState.validateWords();
-        this.boardState.generateAnchors();
-        this.redraw();
+        if(this.deckState.hasLetter(e.key)) {
+            this.deckState.removeLetter(e.key);
+            let currentTile = this.boardState.getTile(this.boardState.cursorPosition);
+            if(currentTile) {
+                this.deckState.addLetter(currentTile.char);
+            }
+
+            this.boardState.setTile(this.boardState.cursorPosition, new TileState(this.boardState.cursorPosition, e.key, true));
+            this.boardState.cursorPosition = this.boardState.cursorPosition.add(this.boardState.cursorDirection);
+            this.boardState.validateWords();
+            this.boardState.generateAnchors();
+            this.redraw();
+        }
     }
 
     translateMouseCoordinates(x, y) {
@@ -123,10 +176,11 @@ class CanvasDisplay {
         } else {
             this.drawAnchors();
         }
+        this.drawDeck();
     }
 
     drawGrid() {
-        for (var i = 0; i < 20; ++i) {
+        for (var i = 0; i < 19; ++i) {
             this.ctx.strokeStyle = "#cccccc";
             this.ctx.lineWidth = 0.5;
             this.ctx.beginPath();
@@ -135,7 +189,7 @@ class CanvasDisplay {
             this.ctx.closePath();
             this.ctx.stroke();
         }
-        for (var i = 0; i < 20; ++i) {
+        for (var i = 0; i < 19; ++i) {
             this.ctx.strokeStyle = "#cccccc";
             this.ctx.lineWidth = 0.5;
             this.ctx.beginPath();
@@ -143,6 +197,22 @@ class CanvasDisplay {
             this.ctx.lineTo(50 * (1 + i), 950);
             this.ctx.closePath();
             this.ctx.stroke();
+        }
+    }
+
+    drawDeck() {
+        var xPos = 0;
+        var yPos = 0;
+        for (var char of this.deckState.letters) {
+            var textXY = new IntVector2(12, 40).add(new IntVector2(1000, 200)).add(new IntVector2(xPos, yPos));
+            this.ctx.font = '50px serif';
+            this.ctx.fillStyle = "#cccccc";
+            this.ctx.fillText(char, textXY.x, textXY.y);
+            xPos += 50;
+            if(xPos > 700) {
+                xPos = 0;
+                yPos += 50;
+            }
         }
     }
 
@@ -175,7 +245,7 @@ class CanvasDisplay {
     }
 
     drawAnchor(position, direction, highlighted) {
-        var fillStyle = highlighted ? "#999999" : "#bbbbbb";
+        var fillStyle = highlighted ? "#999999" : "#eeeeee";
 
         if(direction.x == 1 && direction.y == 0) {
             var [baseX, baseY] = [250 + position.x * 50, 250 + position.y * 50];
@@ -215,7 +285,9 @@ class CanvasDisplay {
 
 function setupGame(canvas){
     var boardState = new BoardState();
-    var boardDisplay = new CanvasDisplay(canvas, boardState);
+    var deckState = new DeckState(solitaire());
+    var boardDisplay = new CanvasDisplay(canvas, boardState, deckState);
     
+
     boardDisplay.redraw();
 };
