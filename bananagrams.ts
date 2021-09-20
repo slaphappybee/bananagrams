@@ -1,4 +1,3 @@
-let dictionary = ["sheet", "plug", "pen", "arrow", "drive", "ocular", "sounds"];  // unused
 let frequencies = {a: 13, b: 3, c: 3, d: 6, e: 18, f:3, g:4, h:3, i:12, j:2, k:2, l:5, m:3, n:8, o:11, p:3, q:2, r:9, s:6, t:9, u:6, v:3, w:3, x:2, y:3, z:2};
 
 // KFY from SO
@@ -98,17 +97,46 @@ class DeckState {
     }
 }
 
+class DictionaryProvider {
+    private words: Array<string>;
+
+    constructor() {
+        this.words = null;
+
+        var self = this;
+        var jsonQuery = new XMLHttpRequest();
+        jsonQuery.open("GET", "https://cdn.rawgit.com/dwyl/english-words/master/words_dictionary.json", true);
+        jsonQuery.onreadystatechange = function() {
+            if (jsonQuery.readyState === 4 && jsonQuery.status == 200) {
+                self.words = Object.keys(JSON.parse(jsonQuery.responseText));
+                console.log("JSON dictionary data loaded OK");
+            }
+        }
+        jsonQuery.send()
+    }
+
+    public ready(): boolean {
+        return this.words != null;
+    }
+
+    public hasWord(word: string): boolean {
+        return this.words.indexOf(word) != -1;
+    }
+}
+
 class BoardState {
     tiles: UsefulMap<IntVector2, TileState>;
     anchors: UsefulMap<IntVector2, AnchorState>;
     cursorPosition: IntVector2;
     cursorDirection: IntVector2;
+    dictionary: DictionaryProvider;
 
     constructor() {
         this.tiles = new UsefulMap();
         this.anchors = new UsefulMap();
         this.cursorPosition = null;
         this.cursorDirection = null;
+        this.dictionary = new DictionaryProvider();
     }
 
     generateAnchors() {
@@ -126,7 +154,44 @@ class BoardState {
         }
     }
 
+    public getWordAt(position: IntVector2, direction: IntVector2) : string {
+        var letters = new Array<string>();
+        while(this.tiles.has(position)) {
+            letters.push(this.tiles.get(position).char);
+            position = position.add(direction);
+        }
+
+        return letters.join("")
+    }
+
     validateWords() {
+        console.log("validateWords()");
+        
+        for (const [_position, state] of this.tiles)
+            state.valid = true;
+
+        for (var direction of [new IntVector2(1, 0), new IntVector2(0, 1)]) {
+            var origins = new Set<string>();
+            var trackback = direction.multiply(-1);
+
+            for (const [position, state] of this.tiles) {
+                var pointer = position;
+                for(; this.tiles.has(pointer); pointer = pointer.add(trackback));
+                
+                if(!pointer.add(direction).equals(position))
+                    origins.add(JSON.stringify(pointer.add(direction)));
+            }
+
+            for (const origin of origins) {
+                var positionJson: any = JSON.parse(origin);
+                var position = new IntVector2(positionJson.x, positionJson.y)
+                if (!this.dictionary.hasWord(this.getWordAt(position, direction))) {
+                    var pointer = position;
+                    for (; this.tiles.has(pointer); pointer = pointer.add(direction))
+                        this.tiles.get(pointer).valid = false;
+                }
+            }
+        }
     }
 }
 
@@ -149,6 +214,10 @@ class IntVector2 {
 
     asArray() : [number, number] {
         return [this.x, this.y];
+    }
+
+    equals(other: IntVector2): boolean {
+        return this.x == other.x && this.y == other.y;
     }
 }
 
