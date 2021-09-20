@@ -131,30 +131,109 @@ class BoardState {
 }
 
 class IntVector2 {
-    x: number;
-    y: number;
+    public x: number;
+    public y: number;
 
-    constructor(x, y) {
+    constructor(x: number, y: number) {
         this.x = x;
         this.y = y;
     }
 
-    add(other) {
+    add(other: IntVector2): IntVector2 {
         return new IntVector2(this.x + other.x, this.y + other.y);
     }
 
-    multiply(factor: number) {
+    multiply(factor: number): IntVector2 {
         return new IntVector2(this.x * factor, this.y * factor);
     }
 
-    asArray() {
+    asArray() : [number, number] {
         return [this.x, this.y];
+    }
+}
+
+class CanvasDrawer {
+    private canvas: HTMLCanvasElement;
+    private context: CanvasRenderingContext2D;
+    private cellWidth : number = 50;  // Width/height of a cell
+    private gridSize : number = 18;  // Number of cells displayed in a row/column
+    private gridOrigin: IntVector2 = new IntVector2(50, 50);  // Margin between canvas origin and grid origin
+    private coordinatesOffset: IntVector2 = new IntVector2(4, 4);  // Coordinates in the grid of the tile #(0, 0)
+
+    constructor(canvas: HTMLCanvasElement) {
+        this.canvas = canvas;
+        this.context = this.canvas.getContext("2d");
+    }
+
+    public drawGrid() {
+        this.context.strokeStyle = "#cccccc";
+        this.context.lineWidth = 0.5;
+
+        for (var i = 0; i < this.gridSize + 1; ++i) {
+            this.context.beginPath();
+            this.context.moveTo(this.cellWidth, this.cellWidth * (1 + i));
+            this.context.lineTo(this.cellWidth * (this.gridSize + 1), this.cellWidth * (1 + i));
+            this.context.closePath();
+            this.context.stroke();
+        }
+        for (var i = 0; i < this.gridSize + 1; ++i) {
+            this.context.beginPath();
+            this.context.moveTo(this.cellWidth * (1 + i), this.cellWidth);
+            this.context.lineTo(this.cellWidth * (1 + i), this.cellWidth * (this.gridSize + 1));
+            this.context.closePath();
+            this.context.stroke();
+        }
+    }
+
+    private getCellPosition(position: IntVector2) : [number, number] {
+        return position.add(this.coordinatesOffset).multiply(this.cellWidth).add(this.gridOrigin).asArray();
+    }
+
+    public translateMouseCoordinates(x: number, y: number): IntVector2 {
+        var [x2, y2] = new IntVector2(x, y).add(this.gridOrigin.multiply(-1)).multiply(1 / this.cellWidth).add(this.coordinatesOffset.multiply(-1)).asArray()
+        return new IntVector2(Math.floor(x2), Math.floor(y2));
+    }
+
+    public drawHighlight(position: IntVector2, color: string) {
+        var [baseX, baseY] = this.getCellPosition(position);
+        this.context.fillStyle = color;
+        this.context.beginPath();
+        this.context.moveTo(baseX, baseY);
+        this.context.lineTo(baseX + this.cellWidth, baseY);
+        this.context.lineTo(baseX + this.cellWidth, baseY + this.cellWidth);
+        this.context.lineTo(baseX, baseY + this.cellWidth);
+        this.context.lineTo(baseX, baseY);
+        this.context.closePath();
+        this.context.fill();
+    }
+
+    public drawAnchor(position: IntVector2, direction: IntVector2, highlighted: boolean) {
+        var fillStyle = highlighted ? "#999999" : "#eeeeee";
+        var [baseX, baseY] = this.getCellPosition(position);
+        this.context.fillStyle = fillStyle;
+        
+        this.context.beginPath();
+        this.context.moveTo(baseX, baseY);
+
+        if(direction.x == 1 && direction.y == 0) {
+            this.context.lineTo(baseX, baseY + this.cellWidth);
+            this.context.lineTo(baseX + 25, baseY + 25);
+        }
+        if(direction.x == 0 && direction.y == 1) {
+            this.context.lineTo(baseX + this.cellWidth, baseY);
+            this.context.lineTo(baseX + 25, baseY + 25);
+        }
+
+        this.context.lineTo(baseX, baseY);
+        this.context.closePath();
+        this.context.fill();
     }
 }
 
 class CanvasDisplay {
     canvas: any;
     ctx: any;
+    canvasDrawer: CanvasDrawer;
     boardState: BoardState;
     deckState: DeckState;
     cursorHighlight: IntVector2;
@@ -162,6 +241,7 @@ class CanvasDisplay {
     constructor(canvas, boardState, deckState) {
         this.canvas = canvas;
         this.ctx = this.canvas.getContext("2d");
+        this.canvasDrawer = new CanvasDrawer(canvas);
         this.boardState = boardState;
         this.deckState = deckState;
         this.cursorHighlight = null;
@@ -174,7 +254,7 @@ class CanvasDisplay {
     }
 
     handleCanvasClick(e) {
-        let position = this.translateMouseCoordinates(e.offsetX, e.offsetY).add(new IntVector2(4, 4).multiply(-1));
+        let position = this.canvasDrawer.translateMouseCoordinates(e.offsetX, e.offsetY);
         this.boardState.cursorPosition = position;
         if(this.boardState.anchors.has(position)) {
             this.boardState.cursorDirection = this.boardState.anchors.get(position).direction;
@@ -200,50 +280,25 @@ class CanvasDisplay {
         }
     }
 
-    translateMouseCoordinates(x, y) {
-        return new IntVector2(Math.floor(x / 50) - 1, Math.floor(y / 50) - 1);
-    }
-
     handleCanvasMousemove(e) {
-        this.cursorHighlight = this.translateMouseCoordinates(e.offsetX, e.offsetY);
+        this.cursorHighlight = this.canvasDrawer.translateMouseCoordinates(e.offsetX, e.offsetY);
         this.redraw();
     }
 
     redraw() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.drawGrid();
-        this.drawHighlight();
+        this.canvasDrawer.drawGrid();
+        this.drawHighlight("#eeeeee");
         this.drawTiles();
         if(this.boardState.cursorPosition) {
             this.drawChar(this.boardState.cursorPosition, "_", "#ff0000");
         }
         if(this.boardState.tiles.size == 0) {
-            this.drawAnchor(new IntVector2(0, 0), new IntVector2(1, 0), false);
+            this.canvasDrawer.drawAnchor(new IntVector2(0, 0), new IntVector2(1, 0), false);
         } else {
             this.drawAnchors();
         }
         this.drawDeck();
-    }
-
-    drawGrid() {
-        for (var i = 0; i < 19; ++i) {
-            this.ctx.strokeStyle = "#cccccc";
-            this.ctx.lineWidth = 0.5;
-            this.ctx.beginPath();
-            this.ctx.moveTo(50, 50 * (1 + i));
-            this.ctx.lineTo(950, 50 * (1 + i));
-            this.ctx.closePath();
-            this.ctx.stroke();
-        }
-        for (var i = 0; i < 19; ++i) {
-            this.ctx.strokeStyle = "#cccccc";
-            this.ctx.lineWidth = 0.5;
-            this.ctx.beginPath();
-            this.ctx.moveTo(50 * (1 + i), 50);
-            this.ctx.lineTo(50 * (1 + i), 950);
-            this.ctx.closePath();
-            this.ctx.stroke();
-        }
     }
 
     drawDeck() {
@@ -262,18 +317,9 @@ class CanvasDisplay {
         }
     }
 
-    drawHighlight() {
+    drawHighlight(color: string) {
         if(this.cursorHighlight == null) return;
-        var [baseX, baseY] = this.cursorHighlight.multiply(50).add(new IntVector2(50, 50)).asArray();
-        this.ctx.fillStyle = "#eeeeee";
-        this.ctx.beginPath();
-        this.ctx.moveTo(baseX, baseY);
-        this.ctx.lineTo(baseX + 50, baseY);
-        this.ctx.lineTo(baseX + 50, baseY + 50);
-        this.ctx.lineTo(baseX, baseY + 50);
-        this.ctx.lineTo(baseX, baseY);
-        this.ctx.closePath();
-        this.ctx.fill();
+        this.canvasDrawer.drawHighlight(this.cursorHighlight, color);
     }
 
     drawTiles() {
@@ -290,41 +336,14 @@ class CanvasDisplay {
         this.ctx.fillText(char, textXY.x, textXY.y);
     }
 
-    drawAnchor(position, direction, highlighted) {
-        var fillStyle = highlighted ? "#999999" : "#eeeeee";
-
-        if(direction.x == 1 && direction.y == 0) {
-            var [baseX, baseY] = [250 + position.x * 50, 250 + position.y * 50];
-            this.ctx.fillStyle = fillStyle;
-            this.ctx.beginPath();
-            this.ctx.moveTo(baseX, baseY);
-            this.ctx.lineTo(baseX, baseY + 50);
-            this.ctx.lineTo(baseX + 25, baseY + 25);
-            this.ctx.lineTo(baseX, baseY);
-            this.ctx.closePath();
-            this.ctx.fill();
-        }
-        if(direction.x == 0 && direction.y == 1) {
-            var [baseX, baseY] = [250 + position.x * 50, 250 + position.y * 50];
-            this.ctx.fillStyle = fillStyle;
-            this.ctx.beginPath();
-            this.ctx.moveTo(baseX, baseY);
-            this.ctx.lineTo(baseX + 50, baseY);
-            this.ctx.lineTo(baseX + 25, baseY + 25);
-            this.ctx.lineTo(baseX, baseY);
-            this.ctx.closePath();
-            this.ctx.fill();
-        }
-    }
-
     drawAnchors() {
         for (const [position, state] of this.boardState.anchors) {
             var highlighted = false;
 
-            if(this.cursorHighlight.x == position.x + 4 && this.cursorHighlight.y == position.y + 4)
+            if(this.cursorHighlight.x == position.x && this.cursorHighlight.y == position.y)
                 highlighted = true;
 
-            this.drawAnchor(position, state.direction, highlighted);
+            this.canvasDrawer.drawAnchor(position, state.direction, highlighted);
         }
     }
 }
